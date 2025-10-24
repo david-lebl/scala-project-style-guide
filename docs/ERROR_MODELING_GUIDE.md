@@ -169,7 +169,7 @@ import scala.util.control.NoStackTrace
 
 sealed trait WorkerError extends NoStackTrace:  // Extends Exception via NoStackTrace
   def message: String
-  override def getMessage: String = message
+  override def getMessage: String = message // IMPORTANT!! for printing
 
 object WorkerError:
   case class WorkerNotFound(id: Worker.Id) extends WorkerError:
@@ -187,11 +187,15 @@ object WorkerError:
     override def getCause: Throwable = cause  // Preserve original cause
 ```
 
+The important part when extending `NoStackTrace` is to override getMessage, otherwise when not handled,
+the default logging will not contain any message. More info here: [extending-scala-case-class-with-nostacktrace-leads-to-unexpected-tostring-behaviour](https://blog.ssanj.net/posts/2022-07-20-extending-scala-case-class-with-nostacktrace-leads-to-unexpected-tostring-behaviour.html)
+
 **Benefits**:
 - ✅ IS-A Throwable (can be used anywhere Throwable is needed)
 - ✅ No stack trace overhead (`NoStackTrace`)
 - ✅ Works with logging frameworks
 - ✅ Can preserve underlying cause
+- ⚠️ User is not forced by the API to handle each error
 
 **Usage**:
 ```scala
@@ -210,7 +214,7 @@ catch
 
 ### Approach 2: toThrowable Method
 
-If you prefer not to extend Exception:
+If you prefer not to extend Exception, which force a user to handle it in some way:
 
 ```scala
 sealed trait WorkerError:
@@ -236,9 +240,7 @@ object WorkerError:
 ```
 
 **Benefits**:
-- ✅ Errors are plain case classes
-- ✅ Clear conversion point
-- ✅ Can customize throwable creation
+- ✅ Force a user to handle the error
 
 **Usage**:
 ```scala
@@ -251,29 +253,6 @@ def handleError: IO[Throwable, Worker] =
   WorkerService.register("worker-1", Map.empty)
     .mapError(_.toThrowable)  // Convert to Throwable
 ```
-
----
-
-### Approach 3: Both (Maximum Flexibility)
-
-Combine both approaches:
-
-```scala
-sealed trait WorkerError extends NoStackTrace:
-  def message: String
-  override def getMessage: String = message
-
-  // Also provide explicit conversion
-  def toThrowable: Throwable = this
-```
-
-**When to use each approach:**
-
-| Approach | Use When |
-|----------|----------|
-| **Extend NoStackTrace** | Default choice - simple, works everywhere |
-| **toThrowable method** | Want errors as pure case classes, explicit conversion |
-| **Both** | Maximum flexibility, but slight redundancy |
 
 ---
 
