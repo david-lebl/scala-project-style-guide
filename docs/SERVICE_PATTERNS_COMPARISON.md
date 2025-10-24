@@ -1,4 +1,4 @@
-# Worker Service Patterns: Service Pattern vs Use Case Pattern
+# Service Patterns: Service Pattern vs Use Case Pattern
 
 This document compares two different architectural patterns for implementing worker management functionality in Scala with ZIO.
 

@@ -355,7 +355,7 @@ object WorkerController:
 4. ✅ **Always separate DTOs from domain types** - for API boundaries
 5. ✅ **Same error type for all operations** - better composability
 
-📖 **[Full Service vs Use Case Comparison →](./docs/WORKER_SERVICE_PATTERNS_COMPARISON.md)**
+📖 **[Full Service vs Use Case Comparison →](docs/SERVICE_PATTERNS_COMPARISON.md)**
 
 ---
 
@@ -700,7 +700,7 @@ object <Service>Service:
 
 - 📖 [Error Modeling Guide](./docs/ERROR_MODELING_GUIDE.md) - Comprehensive error design patterns
 - 📖 [Monorepo Structure Guide](./docs/MONOREPO_PROJECT_STRUCTURE.md) - Module organization and dependencies
-- 📖 [Service vs Use Case Comparison](./docs/WORKER_SERVICE_PATTERNS_COMPARISON.md) - Detailed pattern comparison
+- 📖 [Service vs Use Case Comparison](docs/SERVICE_PATTERNS_COMPARISON.md) - Detailed pattern comparison
 - 📖 [Self-Contained vs Domain-Driven Guide](./docs/SELF_CONTAINED_VS_DOMAIN_SERVICES.md) - When to use each approach
 
 ---
