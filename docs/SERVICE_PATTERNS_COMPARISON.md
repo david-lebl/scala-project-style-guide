@@ -2,6 +2,13 @@
 
 This document compares two different architectural patterns for implementing worker management functionality in Scala with ZIO.
 
+> **📦 Compilable Examples**: All code examples in this guide are available as compilable, executable Scala source files in [`src/examples/servicepatterns/`](../src/examples/servicepatterns/).
+>
+> Run the comparison examples with:
+> ```bash
+> scala-cli run ../ --main-class examples.servicepatterns.ServicePatternsComparison
+> ```
+
 ## Overview
 
 Both implementations provide the same core functionality:
@@ -525,3 +532,119 @@ In practice, the performance difference is negligible compared to I/O operations
   - CQRS/DDD alignment
 
 Both patterns are valid and well-supported by ZIO's effect system!
+
+---
+
+## Working Example Code
+
+All the patterns demonstrated in this guide are implemented as **compilable, executable Scala code** in the [`src/examples/servicepatterns/`](../src/examples/servicepatterns/) directory.
+
+### Source Files
+
+**Service Pattern:**
+- [`WorkerServicePattern.scala`](../src/examples/servicepatterns/servicepattern/WorkerServicePattern.scala) - Complete Service Pattern implementation
+  - Trait-based service with all methods grouped together
+  - Single dependency injection point
+  - Live implementation with shared dependencies
+
+**Use Case Pattern (without DTOs):**
+- [`WorkerUseCases.scala`](../src/examples/servicepatterns/usecasepattern/WorkerUseCases.scala) - Use Case Pattern with direct parameters
+  - Standalone functions per use case
+  - Minimal dependencies per function
+  - No Input/Output case classes (simpler)
+
+**Use Case Pattern (with DTOs):**
+- [`WorkerUseCasesWithDTO.scala`](../src/examples/servicepatterns/usecasepattern/WorkerUseCasesWithDTO.scala) - Use Case Pattern with Input/Output DTOs
+  - Explicit Input/Output case classes
+  - Self-documenting contracts
+  - Good for CQRS and API boundaries
+
+**Comparison Examples:**
+- [`ServicePatternsComparison.scala`](../src/examples/servicepatterns/ServicePatternsComparison.scala) - Side-by-side comparison demonstrating:
+  - Service Pattern usage
+  - Use Case Pattern usage (without DTOs)
+  - Use Case Pattern usage (with DTOs)
+  - Dependency comparison
+  - Complex operations in both patterns
+  - Error handling in both patterns
+
+### Running the Examples
+
+Compile all examples:
+```bash
+scala-cli compile ../
+```
+
+Run the comparison examples:
+```bash
+scala-cli run ../ --main-class examples.servicepatterns.ServicePatternsComparison
+```
+
+Expected output:
+```
+╔══════════════════════════════════════════════════╗
+║  Service Patterns Comparison                     ║
+║  From: SERVICE_PATTERNS_COMPARISON.md            ║
+╚══════════════════════════════════════════════════╝
+
+=== Example 1: Service Pattern ===
+✓ Service Pattern: Registered worker-1, status: Pending
+✓ Service Pattern: Heartbeat recorded
+✓ Service Pattern: Active workers: 1
+
+=== Example 2: Use Case Pattern (no DTOs) ===
+✓ Use Case Pattern: Registered worker-2, status: Pending
+✓ Use Case Pattern: Heartbeat recorded
+✓ Use Case Pattern: Active workers: 2
+
+=== Example 3: Use Case Pattern (with DTOs) ===
+✓ Use Case with DTO: Registered worker-3, status: Pending
+✓ Use Case with DTO: Heartbeat recorded at 2025-..., status: Active
+✓ Use Case with DTO: Active workers: 3
+
+=== Example 4: Dependency Comparison ===
+Service Pattern: Requires ALL dependencies at service level
+  - WorkerRepository & HeartbeatRepository
+  - Even if you only call one method
+
+Use Case Pattern: Requires only needed dependencies
+  - registerWorker: only WorkerRepository
+  - recordHeartbeat: WorkerRepository & HeartbeatRepository
+  - getActiveWorkers: only WorkerRepository
+
+=== Example 5: Complex Operation (Stale Workers) ===
+✓ Service Pattern: Found 0 stale workers
+✓ Use Case Pattern: Found 0 stale workers
+
+=== Example 6: Error Handling ===
+✓ Service Pattern error caught: Worker with ID 'duplicate' already exists
+✓ Use Case Pattern error caught: Worker with ID 'duplicate2' already exists
+
+✓ All comparison examples completed!
+```
+
+### Key Differences Demonstrated
+
+1. **Service Pattern** ([WorkerServicePattern.scala](../src/examples/servicepatterns/servicepattern/WorkerServicePattern.scala))
+   - All methods in `trait WorkerService`
+   - Dependencies injected at service level (lines 53-55)
+   - Traditional OOP-style organization
+
+2. **Use Case Pattern (Simple)** ([WorkerUseCases.scala](../src/examples/servicepatterns/usecasepattern/WorkerUseCases.scala))
+   - Functions in `object WorkerUseCases`
+   - Dependencies per function (minimal requirements)
+   - Direct parameters, no DTOs
+
+3. **Use Case Pattern (with DTOs)** ([WorkerUseCasesWithDTO.scala](../src/examples/servicepatterns/usecasepattern/WorkerUseCasesWithDTO.scala))
+   - Input/Output case classes for each use case
+   - Self-documenting contracts
+   - Better for API boundaries and CQRS
+
+4. **Comparison Examples** ([ServicePatternsComparison.scala](../src/examples/servicepatterns/ServicePatternsComparison.scala))
+   - Shows all three patterns in action
+   - Demonstrates dependency differences
+   - Shows error handling in both patterns
+
+---
+
+This working code serves as a reference implementation that you can copy, modify, and adapt for your own projects!
