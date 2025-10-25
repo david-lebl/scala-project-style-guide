@@ -1,0 +1,613 @@
+= Error Modeling in Scala with ZIO
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+:source-highlighter: rouge
+:experimental:
+
+A comprehensive guide for designing domain errors in Scala/ZIO applications.
+
+[NOTE]
+.📦 Compilable Examples
+====
+All code examples in this guide are available as compilable, executable Scala source files in link:../src/examples/errormodeling/[`src/examples/errormodeling/`].
+
+Run the examples with:
+[source,bash]
+----
+scala-cli run ../ --main-class examples.errormodeling.ErrorModelingExamples
+----
+====
+
+== Domain-Wide vs Service-Specific Errors
+
+=== The Question
+
+Should you have *one error type for the entire domain* or *separate errors per service/use case*?
+
+[source,scala]
+----
+// Option 1: Domain-wide error
+sealed trait WorkerError
+case class WorkerNotFound(id: Worker.Id, message: String) extends WorkerError
+
+// All services use the same error type
+trait WorkerService:
+  def register(...): IO[WorkerError, Worker]
+  def heartbeat(...): IO[WorkerError, Unit]
+  def getWorker(...): IO[WorkerError, Worker]
+
+// vs
+
+// Option 2: Service-specific errors
+sealed trait RegistrationError
+sealed trait HeartbeatError
+
+trait WorkerService:
+  def register(...): IO[RegistrationError, Worker]
+  def heartbeat(...): IO[HeartbeatError, Unit]
+----
+
+=== Recommendation: Domain-Wide Error (for most cases)
+
+✅ *Use a single domain-wide error type* for the entire domain, with these exceptions:
+
+* Services deployed independently
+* External API boundaries with different error contracts
+* Very different error handling requirements
+
+=== Why Domain-Wide Error?
+
+==== Composability
+
+[source,scala]
+----
+// ✅ Easy composition with same error type
+def registerAndActivate(id: String): IO[WorkerError, Worker] =
+  for
+    worker <- WorkerService.register(id, Map.empty)      // IO[WorkerError, Worker]
+    _ <- WorkerService.heartbeat(worker.id)              // IO[WorkerError, Unit]
+    activated <- WorkerService.activate(worker.id)       // IO[WorkerError, Worker]
+  yield activated
+
+// ❌ Difficult with different error types
+def registerAndActivate(id: String): IO[???, Worker] =  // What error type here?
+  for
+    worker <- WorkerService.register(id, Map.empty)      // IO[RegistrationError, Worker]
+    _ <- WorkerService.heartbeat(worker.id)              // IO[HeartbeatError, Unit] - Can't compose!
+  yield worker
+----
+
+==== Simplicity
+
+* One error type to document
+* One error type to handle
+* One error type to test
+
+==== Refactoring Freedom
+
+* Can move operations between services
+* Errors flow naturally through call chains
+* API remains stable
+
+=== When to Use Service-Specific Errors?
+
+Create *separate error types* when:
+
+1. *Independent deployment* - Services deployed as separate microservices
+2. *Different API boundaries* - REST API vs gRPC vs Message Queue
+3. *Different error handling* - Retry logic differs significantly
+4. *Very large domains* - 100+ error cases (consider splitting domain instead)
+
+== Error Structure Best Practices
+
+=== Include Error Messages
+
+Each error should contain a *human-readable message*:
+
+.Worker Error Definition (Actual Source)
+[source,scala]
+----
+include::../src/examples/errormodeling/domain/WorkerError.scala[lines=20..22]
+----
+
+.Sample Error Cases
+[source,scala]
+----
+include::../src/examples/errormodeling/domain/WorkerError.scala[lines=28..33]
+
+include::../src/examples/errormodeling/domain/WorkerError.scala[lines=41..42]
+
+include::../src/examples/errormodeling/domain/WorkerError.scala[lines=68..74]
+----
+
+*Benefits:*
+
+* *User-friendly*: Clear error messages
+* *Debugging*: Includes relevant context
+* *Logging*: Can log directly
+* *API responses*: Can return to clients
+
+=== Alternative: Message Method
+
+If you prefer flexibility:
+
+[source,scala]
+----
+sealed trait WorkerError:
+  def message: String
+
+object WorkerError:
+  case class WorkerNotFound(id: Worker.Id) extends WorkerError:
+    def message = s"Worker with ID '${id.value}' not found"
+
+  case class InvalidConfiguration(field: String, reason: String) extends WorkerError:
+    def message = s"Invalid configuration for field '$field': $reason"
+----
+
+*Same benefits*, but computed on-demand rather than stored.
+
+== Converting to Throwable
+
+ZIO errors are typed, but sometimes you need to convert to `Throwable`:
+
+* Logging frameworks
+* Legacy code integration
+* Monitoring/observability tools
+* Stack traces for debugging
+
+=== Approach 1: Extend NoStackTrace Exception (Recommended)
+
+.Complete WorkerError with NoStackTrace
+[source,scala]
+----
+include::../src/examples/errormodeling/domain/WorkerError.scala[lines=1..22]
+----
+
+[IMPORTANT]
+====
+The important part when extending `NoStackTrace` is to override `getMessage`, otherwise when not handled, the default logging will not contain any message.
+
+More info: https://blog.ssanj.net/posts/2022-07-20-extending-scala-case-class-with-nostacktrace-leads-to-unexpected-tostring-behaviour.html[extending-scala-case-class-with-nostacktrace-leads-to-unexpected-tostring-behaviour]
+====
+
+*Benefits:*
+
+* ✅ IS-A Throwable (can be used anywhere Throwable is needed)
+* ✅ No stack trace overhead (`NoStackTrace`)
+* ✅ Works with logging frameworks
+* ✅ Can preserve underlying cause
+* ⚠️ User is not forced by the API to handle each error
+
+*Usage:*
+
+[source,scala]
+----
+// Automatically works as Throwable
+def logError(error: WorkerError): Unit =
+  logger.error("Worker error occurred", error)  // error is Throwable
+
+// Can catch in try/catch (though not recommended with ZIO)
+try
+  // some code
+catch
+  case e: WorkerError.WorkerNotFound => println(e.message)
+----
+
+=== Approach 2: toThrowable Method
+
+If you prefer not to extend Exception, which forces a user to handle it in some way:
+
+[source,scala]
+----
+sealed trait WorkerError:
+  def message: String
+  def toThrowable: Throwable
+
+object WorkerError:
+  case class WorkerNotFound(id: Worker.Id) extends WorkerError:
+    val message = s"Worker with ID '${id.value}' not found"
+    def toThrowable = new Exception(message) with NoStackTrace
+
+  case class InvalidWorkerState(
+    id: Worker.Id,
+    currentState: Worker.Status,
+    expectedState: Worker.Status
+  ) extends WorkerError:
+    val message = s"Worker '${id.value}' is in state $currentState, expected $expectedState"
+    def toThrowable = new Exception(message) with NoStackTrace
+
+  case class RepositoryError(operation: String, cause: Throwable) extends WorkerError:
+    val message = s"Repository operation '$operation' failed: ${cause.getMessage}"
+    def toThrowable = new Exception(message, cause) with NoStackTrace
+----
+
+*Benefits:*
+
+* ✅ Forces a user to handle the error
+
+*Usage:*
+
+[source,scala]
+----
+// Explicit conversion
+def logError(error: WorkerError): Unit =
+  logger.error("Worker error occurred", error.toThrowable)
+
+// With ZIO
+def handleError: IO[Throwable, Worker] =
+  WorkerService.register("worker-1", Map.empty)
+    .mapError(_.toThrowable)  // Convert to Throwable
+----
+
+== Error Hierarchies
+
+=== Flat Structure (Simple)
+
+Good for *small-medium domains* (< 20 error cases):
+
+[source,scala]
+----
+sealed trait WorkerError extends NoStackTrace:
+  def message: String
+  override def getMessage: String = message
+
+object WorkerError:
+  // Registration errors
+  case class WorkerAlreadyExists(id: Worker.Id) extends WorkerError:
+    val message = s"Worker '${id.value}' already exists"
+
+  case class InvalidConfiguration(field: String, reason: String) extends WorkerError:
+    val message = s"Invalid configuration for field '$field': $reason"
+
+  // State errors
+  case class WorkerNotFound(id: Worker.Id) extends WorkerError:
+    val message = s"Worker with ID '${id.value}' not found"
+
+  case class InvalidWorkerState(
+    id: Worker.Id,
+    currentState: Worker.Status,
+    expectedState: Worker.Status
+  ) extends WorkerError:
+    val message = s"Worker '${id.value}' is in state $currentState, expected $expectedState"
+
+  // Heartbeat errors
+  case class HeartbeatTimeout(id: Worker.Id, lastSeen: Instant) extends WorkerError:
+    val message = s"Worker '${id.value}' heartbeat timeout, last seen at $lastSeen"
+
+  // Infrastructure errors
+  case class RepositoryError(operation: String, cause: Throwable) extends WorkerError:
+    val message = s"Repository operation '$operation' failed: ${cause.getMessage}"
+    override def getCause: Throwable = cause
+----
+
+=== Hierarchical Structure (Advanced)
+
+Good for *large domains* with logical groupings:
+
+[source,scala]
+----
+sealed trait WorkerError extends NoStackTrace:
+  def message: String
+  override def getMessage: String = message
+
+// Sub-categories
+sealed trait RegistrationError extends WorkerError
+sealed trait StateError extends WorkerError
+sealed trait HeartbeatError extends WorkerError
+sealed trait InfrastructureError extends WorkerError
+
+object WorkerError:
+  // Registration errors
+  object Registration:
+    case class WorkerAlreadyExists(id: Worker.Id) extends RegistrationError:
+      val message = s"Worker '${id.value}' already exists"
+
+    case class InvalidConfiguration(field: String, reason: String) extends RegistrationError:
+      val message = s"Invalid configuration for field '$field': $reason"
+
+  // State errors
+  object State:
+    case class WorkerNotFound(id: Worker.Id) extends StateError:
+      val message = s"Worker with ID '${id.value}' not found"
+
+    case class InvalidTransition(
+      id: Worker.Id,
+      from: Worker.Status,
+      to: Worker.Status
+    ) extends StateError:
+      val message = s"Invalid state transition for worker '${id.value}': $from -> $to"
+
+  // Heartbeat errors
+  object Heartbeat:
+    case class Timeout(id: Worker.Id, lastSeen: Instant) extends HeartbeatError:
+      val message = s"Worker '${id.value}' heartbeat timeout, last seen at $lastSeen"
+
+    case class RecordingFailed(id: Worker.Id, reason: String) extends HeartbeatError:
+      val message = s"Failed to record heartbeat for worker '${id.value}': $reason"
+
+  // Infrastructure errors
+  object Infrastructure:
+    case class RepositoryError(operation: String, cause: Throwable) extends InfrastructureError:
+      val message = s"Repository operation '$operation' failed: ${cause.getMessage}"
+      override def getCause: Throwable = cause
+
+    case class DatabaseError(query: String, cause: Throwable) extends InfrastructureError:
+      val message = s"Database query failed: ${cause.getMessage}"
+      override def getCause: Throwable = cause
+----
+
+*Usage:*
+
+[source,scala]
+----
+// Import specific categories
+import WorkerError.Registration._
+import WorkerError.State._
+
+// Pattern match by category
+def handleError(error: WorkerError): String = error match
+  case e: RegistrationError => s"Registration failed: ${e.message}"
+  case e: StateError => s"State error: ${e.message}"
+  case e: HeartbeatError => s"Heartbeat error: ${e.message}"
+  case e: InfrastructureError => s"System error: ${e.message}"
+
+// Or match specific errors
+def handleSpecific(error: WorkerError): Unit = error match
+  case Registration.WorkerAlreadyExists(id) => println(s"Worker $id exists")
+  case State.WorkerNotFound(id) => println(s"Worker $id not found")
+  case _ => println(s"Other error: ${error.message}")
+----
+
+== Practical Examples
+
+=== Example 1: Complete Worker Domain Error
+
+.Complete WorkerError definition from working code
+[source,scala]
+----
+include::../src/examples/errormodeling/domain/WorkerError.scala[lines=1..111]
+----
+
+=== Example 2: Using in Service
+
+.WorkerService with error handling
+[source,scala]
+----
+include::../src/examples/errormodeling/service/WorkerService.scala[lines=8..33]
+----
+
+.WorkerService implementation (excerpt)
+[source,scala]
+----
+include::../src/examples/errormodeling/service/WorkerService.scala[lines=44..67]
+----
+
+.Validation and error mapping
+[source,scala]
+----
+include::../src/examples/errormodeling/service/WorkerService.scala[lines=131..142]
+----
+
+=== Example 3: Error Handling in Application
+
+.Example application with error handling
+[source,scala]
+----
+include::../src/examples/errormodeling/ErrorModelingExamples.scala[lines=144..192]
+----
+
+=== Example 4: Converting to HTTP Responses
+
+[source,scala]
+----
+import zio.http._
+
+object WorkerRoutes:
+  def routes: Routes[WorkerService, Nothing] = Routes(
+    Method.POST / "workers" -> handler { (req: Request) =>
+      (for
+        dto <- req.body.as[RegisterWorkerRequest]
+        worker <- WorkerService.register(dto.id, dto.config)
+        response = RegisterWorkerResponse(worker.id.value, worker.status.toString)
+      yield Response.json(response.toJson))
+        .catchAll(errorToHttpResponse)
+    }
+  )
+
+  private def errorToHttpResponse(error: WorkerError): UIO[Response] =
+    val (status, body) = error match
+      case WorkerError.WorkerAlreadyExists(_) =>
+        (Status.Conflict, ErrorResponse(409, error.message))
+
+      case WorkerError.WorkerNotFound(_) =>
+        (Status.NotFound, ErrorResponse(404, error.message))
+
+      case WorkerError.InvalidConfiguration(_, _) =>
+        (Status.BadRequest, ErrorResponse(400, error.message))
+
+      case WorkerError.UnauthorizedOperation(_, _, _) =>
+        (Status.Forbidden, ErrorResponse(403, error.message))
+
+      case _: WorkerError.RepositoryError | _: WorkerError.DatabaseError =>
+        (Status.InternalServerError, ErrorResponse(500, "Internal server error"))
+
+      case _ =>
+        (Status.InternalServerError, ErrorResponse(500, error.message))
+
+    ZIO.succeed(Response(status = status, body = Body.fromString(body.toJson)))
+
+  case class ErrorResponse(code: Int, message: String) derives JsonCodec
+----
+
+== Summary: Best Practices
+
+1. ✅ *Use domain-wide error* for most cases (simplicity + composability)
+2. ✅ *Include error messages* in each error case (user-friendly + debugging)
+3. ✅ *Extend NoStackTrace* for automatic Throwable conversion (recommended)
+4. ✅ *Preserve underlying causes* when wrapping exceptions (use `getCause`)
+5. ✅ *Group errors logically* in companion object or use hierarchical structure
+6. ✅ *Include relevant context* (IDs, states, timestamps) in errors
+7. ✅ *Map infrastructure errors* to domain errors at the boundary
+8. ⚠️ *Only split errors* when services are truly independent
+9. ❌ *Don't use generic errors* like `Error(message: String)` - be specific
+10. ❌ *Don't leak technical details* in error messages shown to end users
+
+== Additional Considerations
+
+=== Error Logging
+
+[source,scala]
+----
+// Errors extending NoStackTrace work directly with logging
+def logError(error: WorkerError): UIO[Unit] =
+  ZIO.logErrorCause("Worker operation failed", Cause.fail(error))
+
+// Or use slf4j/log4j
+def logWithSlf4j(error: WorkerError): Unit =
+  logger.error("Worker error: {}", error.message, error)  // error is Throwable
+----
+
+=== Error Metrics
+
+[source,scala]
+----
+def recordErrorMetric(error: WorkerError): UIO[Unit] =
+  val errorType = error.getClass.getSimpleName
+  metrics.counter(s"worker.errors.$errorType").increment
+----
+
+=== Error Documentation
+
+[source,scala]
+----
+/** Worker domain errors.
+  *
+  * All errors include a human-readable message and extend NoStackTrace
+  * for efficient error handling without stack trace overhead.
+  *
+  * Error Categories:
+  * - Registration: WorkerAlreadyExists, InvalidConfiguration
+  * - State: WorkerNotFound, InvalidWorkerState
+  * - Heartbeat: HeartbeatTimeout, HeartbeatRecordingFailed
+  * - Infrastructure: RepositoryError, DatabaseError
+  */
+sealed trait WorkerError extends NoStackTrace
+----
+
+This approach provides excellent error handling while maintaining type safety and user-friendliness!
+
+== Working Example Code
+
+All the patterns demonstrated in this guide are implemented as *compilable, executable Scala code* in the link:../src/examples/errormodeling/[`src/examples/errormodeling/`] directory.
+
+=== Source Files
+
+*Domain Layer:*
+
+* link:../src/examples/errormodeling/domain/Worker.scala[`Worker.scala`] - Domain model with opaque type ID and lifecycle states
+* link:../src/examples/errormodeling/domain/WorkerError.scala[`WorkerError.scala`] - Complete error hierarchy (all error cases from this guide)
+
+*Repository Layer:*
+
+* link:../src/examples/errormodeling/repository/WorkerRepository.scala[`WorkerRepository.scala`] - Repository trait
+* link:../src/examples/errormodeling/repository/HeartbeatRepository.scala[`HeartbeatRepository.scala`] - Heartbeat tracking trait
+* link:../src/examples/errormodeling/repository/InMemoryWorkerRepository.scala[`InMemoryWorkerRepository.scala`] - In-memory implementation
+* link:../src/examples/errormodeling/repository/InMemoryHeartbeatRepository.scala[`InMemoryHeartbeatRepository.scala`] - In-memory heartbeat tracking
+
+*Service Layer:*
+
+* link:../src/examples/errormodeling/service/WorkerService.scala[`WorkerService.scala`] - Service trait and live implementation with comprehensive error handling
+
+*Executable Examples:*
+
+* link:../src/examples/errormodeling/ErrorModelingExamples.scala[`ErrorModelingExamples.scala`] - Runnable application demonstrating:
+** Domain-wide error composition
+** Error messages and NoStackTrace extension
+** Configuration validation errors
+** State management and transitions
+** Error-as-Throwable for logging
+** Comprehensive error handling patterns
+
+=== Running the Examples
+
+Compile all examples:
+
+[source,bash]
+----
+scala-cli compile ../
+----
+
+Run the interactive examples:
+
+[source,bash]
+----
+scala-cli run ../ --main-class examples.errormodeling.ErrorModelingExamples
+----
+
+.Expected output
+[source]
+----
+╔════════════════════════════════════════════╗
+║  Error Modeling Examples                  ║
+║  From: ERROR_MODELING_GUIDE.md             ║
+╚════════════════════════════════════════════╝
+
+=== Example 1: Basic Registration ===
+✓ Registered: worker-1, status: Pending
+✗ Expected error: Worker with ID 'worker-1' already exists
+
+=== Example 2: Error Composition ===
+✓ Registered and activated: worker-2, status: Active
+
+=== Example 3: Configuration Validation ===
+✓ Validation error caught: Invalid configuration: field 'capacity' - required field missing
+
+=== Example 4: State Management ===
+✓ Worker registered, status: Pending
+✓ After heartbeat, status: Active
+✓ State error caught: Worker 'worker-4' is in state Active, expected Pending
+
+=== Example 5: Error as Throwable ===
+✓ Error is Throwable: true
+✓ Error message: Worker with ID 'nonexistent' not found
+
+=== Example 6: Comprehensive Error Handling ===
+✓ Worker worker-6 registered and active
+
+✓ All examples completed successfully!
+----
+
+=== Key Patterns Demonstrated
+
+1. *Domain-Wide Errors* (link:../src/examples/errormodeling/domain/WorkerError.scala#L20[WorkerError.scala:20])
+** Single error type for entire domain
+** All services use `IO[WorkerError, *]`
+** Easy composition with `flatMap`
+
+2. *Error Messages* (link:../src/examples/errormodeling/domain/WorkerError.scala#L21-L22[WorkerError.scala:21-22])
+** Each error case has descriptive message
+** Override `getMessage` for proper logging
+
+3. *NoStackTrace Extension* (link:../src/examples/errormodeling/domain/WorkerError.scala#L20[WorkerError.scala:20])
+** Automatic Throwable conversion
+** No stack trace overhead
+** Works with logging frameworks
+
+4. *Error Composition* (link:../src/examples/errormodeling/ErrorModelingExamples.scala#L198-L206[ErrorModelingExamples.scala:198-206])
+** Multiple operations with same error type
+** Natural composition in for-comprehensions
+
+5. *Infrastructure Error Wrapping* (link:../src/examples/errormodeling/service/WorkerService.scala#L62-L65[WorkerService.scala:62-65])
+** Map repository errors to domain errors
+** Preserve underlying causes with `getCause`
+
+6. *Comprehensive Error Handling* (link:../src/examples/errormodeling/ErrorModelingExamples.scala#L144-L192[ErrorModelingExamples.scala:144-192])
+** Pattern matching on error types
+** HTTP-style error categorization
+** Logging integration
+
+'''
+
+This working code serves as a reference implementation that you can copy, modify, and adapt for your own projects!
