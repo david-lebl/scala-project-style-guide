@@ -12,9 +12,10 @@ A comprehensive style guide for building scalable, maintainable Scala applicatio
 1. [Error Modeling](#1-error-modeling)
 2. [Monorepo Structure](#2-monorepo-structure)
 3. [Service Pattern vs Use Case Pattern](#3-service-pattern-vs-use-case-pattern)
-4. [Self-Contained vs Domain-Driven Services](#4-self-contained-vs-domain-driven-services)
-5. [Quick Reference](#5-quick-reference)
-6. [Getting Started Checklist](#6-getting-started-checklist)
+4. [Command/Event Handler Pattern](#4-commandevent-handler-pattern)
+5. [Self-Contained vs Domain-Driven Services](#5-self-contained-vs-domain-driven-services)
+6. [Quick Reference](#6-quick-reference)
+7. [Getting Started Checklist](#7-getting-started-checklist)
 
 ---
 
@@ -359,7 +360,192 @@ object WorkerController:
 
 ---
 
-## 4. Self-Contained vs Domain-Driven Services
+## 4. Command/Event Handler Pattern
+
+### Recommendation: For CQRS and Event Sourcing Architectures
+
+**Use Command/Event Handler Pattern** when you need explicit command handling, event sourcing, or audit trails.
+
+### Core Concepts:
+
+The Handler Pattern adds an abstraction layer using:
+- **Commands** (Input): Represent operations to perform (persistable, serializable)
+- **Events** (Output): Represent what happened (immutable facts, past tense)
+- **Handler**: Processes commands and produces events
+
+### Handler Pattern with Service:
+
+```scala
+object WorkerService:
+  // Events (Output)
+  enum Event:
+    case WorkerRegistered(id: WorkerId, registeredAt: Instant)
+    case WorkerUnregistered(id: WorkerId, unregisteredAt: Instant)
+    case HeartbeatRecorded(id: WorkerId, recordedAt: Instant)
+
+  // Commands (Input) - GADT for type safety
+  enum Command[+E]:
+    case RegisterWorker(id: WorkerId, config: Map[String, String])
+      extends Command[Event.WorkerRegistered]
+    case UnregisterWorker(id: WorkerId)
+      extends Command[Event.WorkerUnregistered]
+    case RecordHeartbeat(id: WorkerId)
+      extends Command[Event.HeartbeatRecorded]
+
+  // Handler Trait
+  trait Handler:
+    def handle[E](command: Command[E]): IO[Error, E]
+
+  // Implementation combines Service + Handler
+  final class Live(deps: Dependencies) extends Service with Handler:
+    def handle[E](command: Command[E]): IO[Error, E] =
+      command match
+        case Command.RegisterWorker(id, config) => registerWorker(id, config)
+        case Command.UnregisterWorker(id) => unregisterWorker(id)
+        case Command.RecordHeartbeat(id) => recordHeartbeat(id)
+
+    def registerWorker(id: WorkerId, config: Map[String, String]): IO[Error, Event.WorkerRegistered] =
+      for
+        _ <- validateWorkerNotExists(id)
+        now <- Clock.instant
+        worker = Worker(id, config, Worker.Status.Pending, now)
+        _ <- deps.workerStore.save(worker)
+        event = Event.WorkerRegistered(id, now)
+        _ <- deps.eventPublisher.publish(event)  // Publish event
+      yield event
+```
+
+### Benefits:
+
+**Commands:**
+- ✅ Persistable and replayable
+- ✅ Serializable (can cross service boundaries)
+- ✅ Type-safe via GADTs
+- ✅ Enables command sourcing
+
+**Events:**
+- ✅ Immutable audit trail
+- ✅ Event sourcing support
+- ✅ Downstream reactions (sagas, notifications)
+- ✅ Complete history of state changes
+
+**Handler:**
+- ✅ Uniform command processing
+- ✅ Middleware support (logging, metrics)
+- ✅ Easy testing with command fixtures
+- ✅ Decouples execution from definition
+
+### Usage Example:
+
+```scala
+// Direct service method
+val result = WorkerService.registerWorker("worker-1", Map("region" -> "us-east"))
+
+// Via handler (for command sourcing, replay)
+val command = WorkerService.Command.RegisterWorker("worker-1", Map("region" -> "us-east"))
+val event = WorkerService.handle(command)
+
+// Command replay for event sourcing
+for
+  commands <- commandLog.read
+  events <- ZIO.foreach(commands)(WorkerService.handle)
+yield events
+```
+
+### Three Pattern Variations:
+
+**1. Service Pattern with Handler** (Hybrid):
+- Traditional service methods + handler interface
+- Good for gradual adoption
+- Can use both styles
+
+**2. Use Case Pattern with Handler** (Standalone):
+- Each use case is a function
+- Separate handler for routing
+- Maximum flexibility
+
+**3. Pure Handler Pattern** (Handler-first):
+- Handler is primary interface
+- Private business logic methods
+- Fully event-driven
+
+### When to Use:
+
+**Use Command/Event Handler Pattern when:**
+- ✅ Event sourcing or CQRS architecture
+- ✅ Need complete audit trail
+- ✅ Command replay for debugging/testing
+- ✅ Saga orchestration with compensating transactions
+- ✅ Commands/events cross service boundaries
+- ✅ Regulatory compliance requirements
+- ✅ Temporal decoupling (command now, effect later)
+
+**Don't use when:**
+- ❌ Simple CRUD operations
+- ❌ Low complexity domains
+- ❌ Performance-critical (extra abstraction overhead)
+- ❌ Team unfamiliar with CQRS/Event Sourcing
+- ❌ Rapid prototyping
+
+### Best Practices:
+
+1. **Use GADTs for type-safe commands**
+   ```scala
+   // ✅ Good: Type safety via GADT
+   enum Command[+E]:
+     case RegisterWorker(id: WorkerId) extends Command[Event.WorkerRegistered]
+   ```
+
+2. **Events should be immutable facts** (past tense)
+   ```scala
+   // ✅ Good: Past tense
+   case class OrderCreated(orderId: OrderId, createdAt: Instant)
+
+   // ❌ Bad: Present tense
+   case class CreateOrder(orderId: OrderId)
+   ```
+
+3. **Commands should be serializable**
+   ```scala
+   // ✅ Good: Simple, serializable data
+   case class RegisterWorker(id: String, config: Map[String, String])
+
+   // ❌ Bad: Non-serializable callback
+   case class RegisterWorker(id: String, callback: () => Unit)
+   ```
+
+4. **Keep handler logic thin** - delegate to service methods
+
+5. **Publish events after state changes** - avoid inconsistency
+
+### Comparison:
+
+| Aspect | Service | Use Case | Handler |
+|--------|---------|----------|---------|
+| **Abstraction** | Method calls | Function calls | Command execution |
+| **Input** | Parameters | Parameters/case classes | Command objects (GADT) |
+| **Output** | Domain types | Domain types/DTOs | Event objects |
+| **Persistability** | No | No | Yes (commands & events) |
+| **Replay Support** | No | No | Yes |
+| **Audit Trail** | Manual | Manual | Automatic (events) |
+| **CQRS Fit** | Moderate | Good | Excellent |
+| **Event Sourcing** | Poor | Moderate | Excellent |
+| **Complexity** | Low | Low-Medium | Medium-High |
+
+### Key Principles:
+
+1. ✅ **Commands represent intent** - what the user wants to do
+2. ✅ **Events represent facts** - what actually happened
+3. ✅ **Use GADTs for type safety** - compile-time guarantees
+4. ✅ **Handlers delegate to business logic** - keep them thin
+5. ✅ **Events enable downstream reactions** - sagas, notifications
+6. ✅ **Combine with Service or Use Case patterns** - not mutually exclusive
+
+📖 **[Full Command/Event Handler Guide →](./docs/SERVICE_PATTERN_WITH_HANDLER.md)**
+
+---
+
+## 5. Self-Contained vs Domain-Driven Services
 
 ### Recommendation: Choose Based on Service Type
 
@@ -499,7 +685,7 @@ When in doubt: ─────────────────────�
 
 ---
 
-## 5. Quick Reference
+## 6. Quick Reference
 
 ### Project Structure Template
 
@@ -630,7 +816,7 @@ object <Service>Service:
 
 ---
 
-## 6. Getting Started Checklist
+## 7. Getting Started Checklist
 
 ### For New Projects:
 
@@ -681,6 +867,7 @@ object <Service>Service:
 3. **Service vs Use Case**
    - ✅ Service Pattern as default
    - ✅ Use Case Pattern for complex domains
+   - ✅ Handler Pattern for CQRS/Event Sourcing
    - ✅ Separate DTOs from domain types
 
 4. **Self-Contained vs Domain-Driven**
@@ -701,6 +888,7 @@ object <Service>Service:
 - 📖 [Error Modeling Guide](./docs/ERROR_MODELING_GUIDE.md) - Comprehensive error design patterns
 - 📖 [Monorepo Structure Guide](./docs/MONOREPO_PROJECT_STRUCTURE.md) - Module organization and dependencies
 - 📖 [Service vs Use Case Comparison](docs/SERVICE_PATTERNS_COMPARISON.md) - Detailed pattern comparison
+- 📖 [Command/Event Handler Pattern](./docs/SERVICE_PATTERN_WITH_HANDLER.md) - CQRS and Event Sourcing guide
 - 📖 [Self-Contained vs Domain-Driven Guide](./docs/SELF_CONTAINED_VS_DOMAIN_SERVICES.md) - When to use each approach
 
 ---
