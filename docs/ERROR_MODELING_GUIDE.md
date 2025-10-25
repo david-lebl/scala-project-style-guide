@@ -2,6 +2,13 @@
 
 A comprehensive guide for designing domain errors in Scala/ZIO applications.
 
+> **📦 Compilable Examples**: All code examples in this guide are available as compilable, executable Scala source files in [`src/examples/errormodeling/`](../src/examples/errormodeling/).
+>
+> Run the examples with:
+> ```bash
+> scala-cli run ../ --main-class examples.errormodeling.ErrorModelingExamples
+> ```
+
 ---
 
 ## Table of Contents
@@ -12,6 +19,7 @@ A comprehensive guide for designing domain errors in Scala/ZIO applications.
 4. [Converting to Throwable](#converting-to-throwable)
 5. [Error Hierarchies](#error-hierarchies)
 6. [Practical Examples](#practical-examples)
+7. [Working Example Code](#working-example-code)
 
 ---
 
@@ -658,3 +666,110 @@ sealed trait WorkerError extends NoStackTrace
 ```
 
 This approach provides excellent error handling while maintaining type safety and user-friendliness!
+
+---
+
+## Working Example Code
+
+All the patterns demonstrated in this guide are implemented as **compilable, executable Scala code** in the [`src/examples/errormodeling/`](../src/examples/errormodeling/) directory.
+
+### Source Files
+
+**Domain Layer:**
+- [`Worker.scala`](../src/examples/errormodeling/domain/Worker.scala) - Domain model with opaque type ID and lifecycle states
+- [`WorkerError.scala`](../src/examples/errormodeling/domain/WorkerError.scala) - Complete error hierarchy (all error cases from this guide)
+
+**Repository Layer:**
+- [`WorkerRepository.scala`](../src/examples/errormodeling/repository/WorkerRepository.scala) - Repository trait
+- [`HeartbeatRepository.scala`](../src/examples/errormodeling/repository/HeartbeatRepository.scala) - Heartbeat tracking trait
+- [`InMemoryWorkerRepository.scala`](../src/examples/errormodeling/repository/InMemoryWorkerRepository.scala) - In-memory implementation
+- [`InMemoryHeartbeatRepository.scala`](../src/examples/errormodeling/repository/InMemoryHeartbeatRepository.scala) - In-memory heartbeat tracking
+
+**Service Layer:**
+- [`WorkerService.scala`](../src/examples/errormodeling/service/WorkerService.scala) - Service trait and live implementation with comprehensive error handling
+
+**Executable Examples:**
+- [`ErrorModelingExamples.scala`](../src/examples/errormodeling/ErrorModelingExamples.scala) - Runnable application demonstrating:
+  - Domain-wide error composition
+  - Error messages and NoStackTrace extension
+  - Configuration validation errors
+  - State management and transitions
+  - Error-as-Throwable for logging
+  - Comprehensive error handling patterns
+
+### Running the Examples
+
+Compile all examples:
+```bash
+scala-cli compile ../
+```
+
+Run the interactive examples:
+```bash
+scala-cli run ../ --main-class examples.errormodeling.ErrorModelingExamples
+```
+
+Expected output:
+```
+╔════════════════════════════════════════════╗
+║  Error Modeling Examples                  ║
+║  From: ERROR_MODELING_GUIDE.md             ║
+╚════════════════════════════════════════════╝
+
+=== Example 1: Basic Registration ===
+✓ Registered: worker-1, status: Pending
+✗ Expected error: Worker with ID 'worker-1' already exists
+
+=== Example 2: Error Composition ===
+✓ Registered and activated: worker-2, status: Active
+
+=== Example 3: Configuration Validation ===
+✓ Validation error caught: Invalid configuration: field 'capacity' - required field missing
+
+=== Example 4: State Management ===
+✓ Worker registered, status: Pending
+✓ After heartbeat, status: Active
+✓ State error caught: Worker 'worker-4' is in state Active, expected Pending
+
+=== Example 5: Error as Throwable ===
+✓ Error is Throwable: true
+✓ Error message: Worker with ID 'nonexistent' not found
+
+=== Example 6: Comprehensive Error Handling ===
+✓ Worker worker-6 registered and active
+
+✓ All examples completed successfully!
+```
+
+### Key Patterns Demonstrated
+
+1. **Domain-Wide Errors** ([WorkerError.scala:20](../src/examples/errormodeling/domain/WorkerError.scala#L20))
+   - Single error type for entire domain
+   - All services use `IO[WorkerError, *]`
+   - Easy composition with `flatMap`
+
+2. **Error Messages** ([WorkerError.scala:21-22](../src/examples/errormodeling/domain/WorkerError.scala#L21-L22))
+   - Each error case has descriptive message
+   - Override `getMessage` for proper logging
+
+3. **NoStackTrace Extension** ([WorkerError.scala:20](../src/examples/errormodeling/domain/WorkerError.scala#L20))
+   - Automatic Throwable conversion
+   - No stack trace overhead
+   - Works with logging frameworks
+
+4. **Error Composition** ([ErrorModelingExamples.scala:198-206](../src/examples/errormodeling/ErrorModelingExamples.scala#L198-L206))
+   - Multiple operations with same error type
+   - Natural composition in for-comprehensions
+
+5. **Infrastructure Error Wrapping** ([WorkerService.scala:62-65](../src/examples/errormodeling/service/WorkerService.scala#L62-L65))
+   - Map repository errors to domain errors
+   - Preserve underlying causes with `getCause`
+
+6. **Comprehensive Error Handling** ([ErrorModelingExamples.scala:144-192](../src/examples/errormodeling/ErrorModelingExamples.scala#L144-L192))
+   - Pattern matching on error types
+   - HTTP-style error categorization
+   - Logging integration
+
+---
+
+This working code serves as a reference implementation that you can copy, modify, and adapt for your own projects!
