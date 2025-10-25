@@ -86,6 +86,11 @@ Only create separate error types when:
 
 📖 **[Full Error Modeling Guide →](./docs/ERROR_MODELING_GUIDE.md)**
 
+**▶️ Try it out:**
+```bash
+scala-cli run . --main-class examples.errormodeling.ErrorModelingExamples
+```
+
 ---
 
 ## 2. Monorepo Structure
@@ -357,6 +362,11 @@ object WorkerController:
 5. ✅ **Same error type for all operations** - better composability
 
 📖 **[Full Service vs Use Case Comparison →](docs/SERVICE_PATTERNS_COMPARISON.md)**
+
+**▶️ Try it out:**
+```bash
+scala-cli run . --main-class examples.servicepatterns.ServicePatternsComparison
+```
 
 ---
 
