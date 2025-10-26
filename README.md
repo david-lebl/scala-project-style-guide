@@ -895,11 +895,23 @@ object <Service>Service:
 
 ## Additional Resources
 
+### Documentation
+
 - 📖 [Error Modeling Guide](./docs/ERROR_MODELING_GUIDE.md) - Comprehensive error design patterns
 - 📖 [Monorepo Structure Guide](./docs/MONOREPO_PROJECT_STRUCTURE.md) - Module organization and dependencies
 - 📖 [Service vs Use Case Comparison](docs/SERVICE_PATTERNS_COMPARISON.md) - Detailed pattern comparison
 - 📖 [Command/Event Handler Pattern](./docs/SERVICE_PATTERN_WITH_HANDLER.md) - CQRS and Event Sourcing guide
 - 📖 [Self-Contained vs Domain-Driven Guide](./docs/SELF_CONTAINED_VS_DOMAIN_SERVICES.md) - When to use each approach
+
+### Multi-Module Examples (Mill)
+
+- 🏗️ **[Worker Module](./examples-mill/worker/)** - Complete Use Case Pattern example with:
+  - Worker lifecycle management (register, unregister, heartbeat)
+  - Scheduled background jobs for state transitions
+  - Package-private repositories with typed errors
+  - REST API with ZIO HTTP
+  - PostgreSQL + In-Memory implementations
+  - **[Quick Start Guide](./examples-mill/QUICKSTART.md)** - Get running in 5 minutes!
 
 ---
 
