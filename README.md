@@ -10,13 +10,14 @@ A comprehensive style guide for building scalable, maintainable Scala applicatio
 ## Table of Contents
 
 1. [Error Modeling](#1-error-modeling)
-2. [Monorepo Structure](#2-monorepo-structure)
-3. [Service Pattern vs Use Case Pattern](#3-service-pattern-vs-use-case-pattern)
-4. [Command/Event Handler Pattern](#4-commandevent-handler-pattern)
-5. [Self-Contained vs Domain-Driven Services](#5-self-contained-vs-domain-driven-services)
-6. [Architecture & Design Patterns](#6-architecture--design-patterns)
-7. [Quick Reference](#7-quick-reference)
-8. [Getting Started Checklist](#8-getting-started-checklist)
+2. [Domain Modeling with Strong Types](#2-domain-modeling-with-strong-types)
+3. [Monorepo Structure](#3-monorepo-structure)
+4. [Service Pattern vs Use Case Pattern](#4-service-pattern-vs-use-case-pattern)
+5. [Command/Event Handler Pattern](#5-commandevent-handler-pattern)
+6. [Self-Contained vs Domain-Driven Services](#6-self-contained-vs-domain-driven-services)
+7. [Architecture & Design Patterns](#7-architecture--design-patterns)
+8. [Quick Reference](#8-quick-reference)
+9. [Getting Started Checklist](#9-getting-started-checklist)
 
 ---
 
@@ -94,7 +95,71 @@ scala-cli run . --main-class examples.errormodeling.ErrorModelingExamples
 
 ---
 
-## 2. Monorepo Structure
+## 2. Domain Modeling with Strong Types
+
+### Recommendation: Make Illegal States Unrepresentable
+
+**Use opaque types and smart constructors** to enforce domain rules at compile-time and construction-time.
+
+#### Pattern 1: Type-Safe IDs (Opaque Types)
+
+```scala
+object Worker:
+  opaque type Id = String
+  object Id:
+    def apply(value: String): Id = value
+    extension (id: Id) def value: String = id
+
+// Usage
+val workerId = Worker.Id("worker-123")
+val fileId = File.Id("file-456")
+
+def getWorker(id: Worker.Id): IO[WorkerError, Worker] = ???
+
+getWorker(workerId)      // ✅ Compiles
+getWorker(fileId)        // ❌ Compile error - type mismatch!
+getWorker("worker-123")  // ❌ Compile error
+```
+
+#### Pattern 2: Smart Constructors with Validation
+
+```scala
+// Validated MDF file
+case class MdfFile private (file: File)
+
+object MdfFile:
+  private val regexMDF = ".*\\.(MDF|MF4)$".r
+
+  def apply(file: File): Either[FileError, MdfFile] =
+    regexMDF
+      .findFirstIn(file.metadata.fullName.value)
+      .map(_ => new MdfFile(file))
+      .toRight(FileError.InvalidMdfFile(file.id))
+
+// Validated positive integer
+object PositiveInt:
+  opaque type PositiveInt = Int
+
+  def apply(value: Int): Either[ValidationError, PositiveInt] =
+    if value > 0 then Right(value)
+    else Left(ValidationError.MustBePositive(value))
+
+  extension (n: PositiveInt) def value: Int = n
+```
+
+#### Benefits
+
+- ✅ **Type safety** - Can't mix up different ID types
+- ✅ **Zero runtime overhead** - Opaque types are erased
+- ✅ **Validation once** - At construction time
+- ✅ **Invalid states unrepresentable** - Can't construct invalid data
+- ✅ **Self-documenting** - Types express business rules
+
+📖 **[Full Domain Modeling Guide →](./docs/DOMAIN_MODELING.md)** - Opaque types, smart constructors, phantom types, and more
+
+---
+
+## 3. Monorepo Structure
 
 ### Recommendation: Domain-Based Modules with Layer Separation
 
@@ -948,6 +1013,7 @@ object <Service>Service:
 ### Documentation
 
 - 📖 [Error Modeling Guide](./docs/ERROR_MODELING_GUIDE.md) - Comprehensive error design patterns
+- 📖 [Domain Modeling Guide](./docs/DOMAIN_MODELING.md) - Opaque types, smart constructors, and validated types
 - 📖 [Monorepo Structure Guide](./docs/MONOREPO_PROJECT_STRUCTURE.md) - Module organization and dependencies
 - 📖 [Service vs Use Case Comparison](docs/SERVICE_PATTERNS_COMPARISON.md) - Detailed pattern comparison
 - 📖 [Command/Event Handler Pattern](./docs/SERVICE_PATTERN_WITH_HANDLER.md) - CQRS and Event Sourcing guide
