@@ -14,8 +14,9 @@ A comprehensive style guide for building scalable, maintainable Scala applicatio
 3. [Service Pattern vs Use Case Pattern](#3-service-pattern-vs-use-case-pattern)
 4. [Command/Event Handler Pattern](#4-commandevent-handler-pattern)
 5. [Self-Contained vs Domain-Driven Services](#5-self-contained-vs-domain-driven-services)
-6. [Quick Reference](#6-quick-reference)
-7. [Getting Started Checklist](#7-getting-started-checklist)
+6. [Architecture & Design Patterns](#6-architecture--design-patterns)
+7. [Quick Reference](#7-quick-reference)
+8. [Getting Started Checklist](#8-getting-started-checklist)
 
 ---
 
@@ -695,7 +696,56 @@ When in doubt: ─────────────────────�
 
 ---
 
-## 6. Quick Reference
+## 6. Architecture & Design Patterns
+
+### Recommendation: Clean Architecture with Layer Separation
+
+This guide provides a **concrete, detailed implementation** of Clean Architecture patterns for a single-module analysis feature, demonstrating how all the patterns from sections 1-5 come together in practice.
+
+### What You'll Learn:
+
+- **Layer 1: Core Domain Types** - Entity design with type safety, sealed trait error hierarchies, service interfaces, and orchestration use cases
+- **Layer 2: Validated Domain Models** - Smart constructors with validation for impossible states
+- **Layer 3: Domain-Specific Services** - Service wrappers that encapsulate dependencies and configuration
+- **Layer 4: Infrastructure Implementations** - Adapters to external domains and database implementations
+
+### Architecture Flow Example:
+
+```
+Application Layer
+      ↓
+Domain-Specific Service (basic/MdfAnalysisManager)
+      ↓
+Orchestration Use Case (AutomatedTraceReporting)
+      ↓
+Service Interfaces (TraceReporting, AnalysisStore, TraceStore)
+      ↓
+Infrastructure Implementations (Adapters, Repositories)
+      ↓
+External Dependencies (Database, Workflow Engine, File System)
+```
+
+### Key Patterns Covered:
+
+- **Value Classes** (AnyVal) - Zero-overhead type-safe identifiers
+- **Smart Constructors** - Validation at construction time with `Either`
+- **Service Wrapper Pattern** - Clean API without ZIO environment leakage
+- **Adapter Pattern** - Translation between domains and external systems
+- **ZIO Layer Integration** - Dependency injection with `ZLayer.derive`
+
+### When to Use:
+
+✅ Complex business domains with multiple sub-features
+✅ Need clear separation between core logic and infrastructure
+✅ Multiple infrastructure implementations (DB, HTTP, Kafka)
+✅ Team collaboration on feature modules
+✅ Long-term maintainability requirements
+
+📖 **[Full Architecture & Design Patterns Guide →](./docs/ARCHITECTURE.md)**
+
+---
+
+## 7. Quick Reference
 
 ### Project Structure Template
 
@@ -826,7 +876,7 @@ object <Service>Service:
 
 ---
 
-## 7. Getting Started Checklist
+## 8. Getting Started Checklist
 
 ### For New Projects:
 
@@ -902,6 +952,7 @@ object <Service>Service:
 - 📖 [Service vs Use Case Comparison](docs/SERVICE_PATTERNS_COMPARISON.md) - Detailed pattern comparison
 - 📖 [Command/Event Handler Pattern](./docs/SERVICE_PATTERN_WITH_HANDLER.md) - CQRS and Event Sourcing guide
 - 📖 [Self-Contained vs Domain-Driven Guide](./docs/SELF_CONTAINED_VS_DOMAIN_SERVICES.md) - When to use each approach
+- 📖 [Architecture & Design Patterns Guide](./docs/ARCHITECTURE.md) - Clean Architecture implementation for single modules
 
 ### Multi-Module Examples (Mill)
 
