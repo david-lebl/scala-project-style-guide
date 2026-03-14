@@ -1,0 +1,42 @@
+# Scala / SBT
+target/
+project/target/
+project/project/
+.bsp/
+.metals/
+.bloop/
+*.class
+*.log
+
+# Mill
+out/
+.mill-version
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# VS Code
+.vscode/
+
+# Metals (Scala LSP)
+.metals/
+.bloop/
+
+# Scala Build Tool artifacts
+.scala-build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Compiled assets
+*.jar
+*.war
+*.ear
+
+# Logs
+*.log
+logs/
