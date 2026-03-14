@@ -4,45 +4,132 @@
 
 ---
 
-> **Status:** Outline — detailed content to be added.
+## 1. Configuration as a Layer
 
-## Table of Contents
+Configuration is a dependency like any other — loaded as a `ZLayer` and injected into services that need it.
 
-1. **Configuration as a Layer**
-   - Config case classes per module: `OrderingConfig`, `PostgresConfig`
-   - Config classes live in `impl` — they are internal to the bounded context
-   - Loaded as `ZLayer` and injected like any other dependency
+```scala
+// ordering-core: .../impl/OrderingConfig.scala
 
-2. **zio-config Patterns**
-   - Deriving config descriptors from case classes
-   - Loading from HOCON / environment variables / system properties
-   - Layered loading: defaults → file → env vars → CLI args (last wins)
+package com.myco.ordering
+package impl
 
-3. **Per-Module Config Structure**
-   - Each `*-core` may define a config for domain-level settings (feature flags, thresholds)
-   - Each `*-infra` defines configs for infrastructure (DB connection, HTTP port, Kafka brokers)
-   - Configs are composed in the `app` module
+private[ordering] final case class OrderingConfig(
+  maxItemsPerOrder: Int,
+  defaultCurrency:  String
+)
+```
 
-4. **HOCON Layout**
-   - One namespace per bounded context: `ordering { db { ... } }`, `shipping { db { ... } }`
-   - Shared infra config at root: `server { port = 8080 }`
-   - `application.conf` + `application-local.conf` + `application-prod.conf`
+```scala
+// ordering-infra: .../impl/postgres/PostgresConfig.scala
 
-5. **Secrets Management**
-   - Never commit secrets to config files
-   - Load from environment variables or a secrets manager
-   - `zio-config` support for env var substitution: `${DB_PASSWORD}`
-   - Pattern: `SecretValue` opaque type that redacts in `toString`
+package com.myco.ordering
+package impl
+package postgres
 
-6. **Environment-Specific Overrides**
-   - Profile-based loading: `ZIO.config` with a `ConfigProvider` chain
-   - Test configs: minimal, in-memory-friendly, no real connections
-   - Docker / Kubernetes: environment variables as the primary source
+final case class PostgresConfig(
+  url:      String,
+  username: String,
+  password: String,
+  poolSize: Int
+)
+```
 
-7. **Validation at Startup**
-   - Fail fast: if config is invalid, the app should not start
-   - `ZLayer` construction failure = startup failure (ZIO handles this)
-   - Custom validation rules: port ranges, non-empty strings, URL formats
+Config classes live in the package that uses them:
+
+- **Domain-level config** (feature flags, thresholds) → `impl` package in `*-core`.
+- **Infrastructure config** (DB connection, HTTP port) → infra sub-package in `*-infra`.
+
+---
+
+### Secret value type
+
+For defense in depth, wrap secrets in an opaque type that redacts in `toString` and logging:
+
+```scala
+opaque type Secret = String
+object Secret:
+  def apply(value: String): Secret = value
+  extension (s: Secret)
+    def value: String     = s
+    def redacted: String  = "***"
+
+  // Override toString at the config case class level
+  given Show[Secret] with
+    def show(s: Secret): String = "***"
+```
+
+```scala
+final case class PostgresConfig(
+  url:      String,
+  username: String,
+  password: Secret,    // won't appear in logs
+  poolSize: Int
+)
+```
+
+---
+
+## 6. Per-Module Config Wiring
+
+Each module exposes its config as a layer. The `app` module composes them:
+
+```scala
+// ordering-infra: .../impl/postgres/PostgresConfig.scala
+object PostgresConfig:
+  val layer: TaskLayer[PostgresConfig] =
+    ZLayer:
+      ZIO.config(deriveConfig[PostgresConfig].nested("ordering", "db"))
+```
+
+```scala
+// app/Main.scala
+
+object Main extends ZIOAppDefault:
+  override val run =
+    program.provide(
+      // Configs
+      OrderingConfig.layer,
+      PostgresConfig.layer,
+      ShippingConfig.layer,
+      ServerConfig.layer,
+      // Services
+      OrderServiceLive.layer,
+      PostgresOrderRepository.layer,
+      // …
+    )
+```
+
+Services that need config declare it as a dependency:
+
+```scala
+private[ordering] final case class OrderServiceLive(
+  orderRepo: OrderRepository,
+  idGen:     IdGenerator,
+  config:    OrderingConfig     // injected via ZLayer
+) extends OrderService:
+
+  override def checkout(input: CheckoutInput): IO[OrderError, OrderView] =
+    for
+      items <- ZIO.fromEither(parseItems(input.items))
+      _     <- ZIO.cond(
+                 items.size <= config.maxItemsPerOrder,
+                 (),
+                 OrderError.TooManyItems(items.size, config.maxItemsPerOrder)
+               )
+      // …
+    yield view
+```
+
+
+---
+
+## 9. Summary
+
+1. **Config is a layer.** Load with `ZLayer`, inject like any other dependency.
+2. **Per-module config classes.** Domain config in `*-core/impl`, infra config in `*-infra/impl.<tech>`.
+4. **Never commit secrets.** Use `${?VAR}` substitution or a secrets manager.
+5. **Fail fast.** Invalid config = application won't start.
 
 ---
 
