@@ -50,7 +50,7 @@ object StubOrderingPort:
   def layer(orders: Map[String, OrderSnapshot]): ULayer[OrderingPort] =
     ZLayer.succeed:
       new OrderingPort:
-        def getOrder(orderId: String): Task[Option[OrderSnapshot]] =
+        def getOrder(orderId: String): UIO[Option[OrderSnapshot]] =
           ZIO.succeed(orders.get(orderId))
 
   val empty: ULayer[OrderingPort] = layer(Map.empty)
@@ -58,15 +58,17 @@ object StubOrderingPort:
 
 ### Simulating failures
 
+Since repository ports return `UIO`, infrastructure failures are defects. To simulate a defect in tests, use `ZIO.die`:
+
 ```scala
 object FailingOrderRepository:
   val layer: ULayer[OrderRepository] =
     ZLayer.succeed:
       new OrderRepository:
-        def save(order: Order): Task[Unit] =
-          ZIO.fail(new RuntimeException("DB connection lost"))
-        def findById(id: Order.Id): Task[Option[Order]] =
-          ZIO.fail(new RuntimeException("DB connection lost"))
+        def save(order: Order): UIO[Unit] =
+          ZIO.die(new RuntimeException("DB connection lost"))
+        def findById(id: Order.Id): UIO[Option[Order]] =
+          ZIO.die(new RuntimeException("DB connection lost"))
 ```
 
 ---

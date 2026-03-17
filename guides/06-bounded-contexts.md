@@ -46,7 +46,7 @@ private[shipping] object OrderSnapshot:
   final case class Item(catalogueNumber: String, quantity: Int)
 
 private[shipping] trait OrderingPort:
-  def getOrder(orderId: String): Task[Option[OrderSnapshot]]
+  def getOrder(orderId: String): UIO[Option[OrderSnapshot]]
 ```
 
 ### Step 2: Live service uses the port
@@ -69,10 +69,9 @@ private[shipping] final case class ShippingServiceLive(
   override def shipOrder(input: ShipOrderInput): IO[ShippingError, ShipmentView] =
     for
       snapshot <- orderingPort.getOrder(input.orderId)
-                    .orDie
                     .someOrFail(ShippingError.OrderNotFound(input.orderId))
       shipment <- ZIO.fromEither(createShipment(snapshot, input))
-      _        <- shipmentRepo.save(shipment).orDie
+      _        <- shipmentRepo.save(shipment)
     yield toView(shipment)
 
 object ShippingServiceLive:
@@ -98,14 +97,12 @@ final case class OrderingAdapter(
   orderService: OrderService
 ) extends OrderingPort:
 
-  override def getOrder(orderId: String): Task[Option[OrderSnapshot]] =
+  override def getOrder(orderId: String): UIO[Option[OrderSnapshot]] =
     orderService.getOrder(OrderId(orderId))
       .map(view => Some(toSnapshot(view)))
       .catchSome:
         case _: ExtOrderError.OrderNotFound => ZIO.succeed(None)
-      .mapError(extErr =>
-        new RuntimeException(s"Ordering service failed: ${extErr.message}")
-      )
+      .orDie  // unexpected foreign errors → defect at the adapter boundary
 
   private def toSnapshot(view: OrderView): OrderSnapshot =
     OrderSnapshot(
@@ -122,13 +119,13 @@ object OrderingAdapter:
 
 ### Error translation in the adapter
 
-The adapter is the **translation boundary**. Foreign errors are converted to:
+The adapter is the **translation boundary** and the `.orDie` boundary. Foreign errors are converted to:
 
 - `Option.None` — for "not found" cases the consumer expects.
-- `Task` failure (`Throwable`) — for unexpected foreign errors. These become defects in the consumer's `Live` via `.orDie`.
+- Defect (via `.orDie`) — for unexpected foreign errors. The adapter owns this conversion, not the service.
 - The consumer's own domain error — only if the foreign error maps to a specific domain case.
 
-**Never expose another context's error type** in your domain code.
+**Never expose another context's error type** in your domain code. The port returns `UIO` (or `IO[ConsumerDomainError, A]`), never `Task`.
 
 ---
 

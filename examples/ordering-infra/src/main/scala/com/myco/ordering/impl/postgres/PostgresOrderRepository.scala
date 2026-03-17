@@ -15,16 +15,19 @@ import zio.*
   *
   * In a real project this would use quill or doobie. Here we use a simple Ref
   * to demonstrate the DAO mapping pattern without requiring a database dependency.
+  *
+  * A real adapter would call `.orDie` on its JDBC/quill effects so that
+  * infrastructure failures become defects — the port returns [[UIO]].
   */
 final case class PostgresOrderRepository(
   ref: Ref[Map[String, OrderDAO]]       // simulates a DB table
 ) extends OrderRepository:
 
-  override def save(order: Order): Task[Unit] =
+  override def save(order: Order): UIO[Unit] =
     val dao = OrderDAO.fromDomain(order)       // domain → DAO
     ref.update(_.updated(dao.id, dao))
 
-  override def findById(id: Order.Id): Task[Option[Order]] =
+  override def findById(id: Order.Id): UIO[Option[Order]] =
     ref.get.map:
       _.get(id.value).map(_.toDomain)          // DAO → domain
 

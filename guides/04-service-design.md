@@ -112,8 +112,8 @@ private[ordering] final case class OrderServiceLive(
       orderId <- idGen.generate.orDie
       order    = Order(orderId, Order.Data(…, items, OrderStatus.Unpaid))
 
-      // Step 3: Persist domain entity directly
-      _ <- orderRepo.save(order).orDie
+      // Step 3: Persist domain entity directly (repo returns UIO or domain error)
+      _ <- orderRepo.save(order)
 
       // Step 4: Map domain → public view
     yield toView(order)

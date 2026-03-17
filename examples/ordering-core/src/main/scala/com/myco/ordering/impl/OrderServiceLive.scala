@@ -29,19 +29,17 @@ private[ordering] final case class OrderServiceLive(
                      status          = OrderStatus.Unpaid
                    )
                  )
-      _       <- orderRepo.save(order).orDie   // infrastructure failure → defect
+      _       <- orderRepo.save(order)
     yield toView(order)
 
   override def getOrder(id: OrderId): IO[OrderError, OrderView] =
     orderRepo.findById(Order.Id(id.value))
-      .orDie                                    // infrastructure failure → defect
       .someOrFail(OrderError.OrderNotFound(id)) // Option → typed error
       .map(toView)
 
   override def cancelOrder(id: OrderId): IO[OrderError, Unit] =
     for
       order <- orderRepo.findById(Order.Id(id.value))
-                 .orDie
                  .someOrFail(OrderError.OrderNotFound(id))
       _     <- order.data.status match
                  case OrderStatus.Cancelled =>
@@ -50,7 +48,7 @@ private[ordering] final case class OrderServiceLive(
                    val cancelled = order.copy(
                      data = order.data.copy(status = OrderStatus.Cancelled)
                    )
-                   orderRepo.save(cancelled).orDie
+                   orderRepo.save(cancelled)
     yield ()
 
   // ── internal conversions (free to change) ─────────────────────

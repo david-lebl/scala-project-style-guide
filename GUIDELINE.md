@@ -512,12 +512,12 @@ package impl
 import zio.*
 
 private[ordering] trait OrderRepository:
-  def save(order: Order): Task[Unit]
-  def findById(id: Order.Id): Task[Option[Order]]
-  def findByCustomer(customerId: Customer.Id): Task[List[Order]]
+  def save(order: Order): UIO[Unit]
+  def findById(id: Order.Id): UIO[Option[Order]]
+  def findByCustomer(customerId: Customer.Id): UIO[List[Order]]
 ```
 
-No intermediate record types. The port speaks the **language of the domain**. How an `Order` becomes a database row is the adapter's problem.
+No intermediate record types. The port speaks the **language of the domain**. How an `Order` becomes a database row is the adapter's problem. The port returns `UIO` because infrastructure failures are defects — adapters call `.orDie` at their own boundary.
 
 ### 5.4 Live Implementation (in the `impl` package, same build module)
 
@@ -550,7 +550,6 @@ private[ordering] final case class OrderServiceLive(
   override def getOrder(id: OrderId): IO[OrderError, OrderView] =
     for
       order <- orderRepo.findById(Order.Id(id.value))
-                 .orDie
                  .someOrFail(OrderError.NotFound(id))
     yield toView(order)
 
@@ -589,17 +588,17 @@ final case class PostgresOrderRepository(
   dataSource: DataSource
 ) extends OrderRepository:
 
-  override def save(order: Order): Task[Unit] =
+  override def save(order: Order): UIO[Unit] =
     val dao = OrderDAO.fromDomain(order)
-    // SQL insert/upsert using quill, doobie, or plain JDBC
-    ???
+    // SQL insert/upsert using quill, doobie, or plain JDBC — .orDie at the adapter boundary
+    ZIO.attemptBlocking(???).orDie
 
-  override def findById(id: Order.Id): Task[Option[Order]] =
-    // SQL select, then map: DAO → domain
-    ???.map(_.map(_.toDomain))
+  override def findById(id: Order.Id): UIO[Option[Order]] =
+    // SQL select, then map: DAO → domain — .orDie at the adapter boundary
+    ZIO.attemptBlocking(???).map(_.map(_.toDomain)).orDie
 
-  override def findByCustomer(customerId: Customer.Id): Task[List[Order]] =
-    ???.map(_.map(_.toDomain))
+  override def findByCustomer(customerId: Customer.Id): UIO[List[Order]] =
+    ZIO.attemptBlocking(???).map(_.map(_.toDomain)).orDie
 
 object PostgresOrderRepository:
   val layer: URLayer[DataSource, OrderRepository] =
@@ -703,7 +702,7 @@ private[shipping] object OrderSnapshot:
 
 // The port — defined in shipping's language
 private[shipping] trait OrderingPort:
-  def getOrder(orderId: String): Task[Option[OrderSnapshot]]
+  def getOrder(orderId: String): UIO[Option[OrderSnapshot]]
 ```
 
 The `Live` service depends on this port, not on `OrderService`:
@@ -724,7 +723,6 @@ private[shipping] final case class ShippingServiceLive(
   override def shipOrder(input: ShipOrderInput): IO[ShippingError, ShipmentView] =
     for
       snapshot <- orderingPort.getOrder(input.orderId)
-                    .orDie
                     .someOrFail(ShippingError.OrderNotFound(input.orderId))
       shipment <- ZIO.fromEither(createShipment(snapshot, input))
       _        <- shipmentRepo.save(shipment)
@@ -757,10 +755,11 @@ final case class OrderingAdapter(
   orderService: OrderService
 ) extends OrderingPort:
 
-  override def getOrder(orderId: String): Task[Option[OrderSnapshot]] =
+  override def getOrder(orderId: String): UIO[Option[OrderSnapshot]] =
     orderService.getOrder(com.myco.ordering.OrderId(orderId))
       .map(view => Some(toSnapshot(view)))
       .catchSome { case _: com.myco.ordering.OrderError => ZIO.succeed(None) }
+      .orDie  // unexpected foreign errors → defect at the adapter boundary
 
   private def toSnapshot(view: OrderView): OrderSnapshot =
     OrderSnapshot(

@@ -15,17 +15,16 @@ package impl
 import zio.*
 
 private[ordering] trait OrderRepository:
-  def save(order: Order): Task[Unit]
-  def findById(id: Order.Id): Task[Option[Order]]
-  def findByCustomer(customerId: Customer.Id): Task[List[Order]]
+  def save(order: Order): UIO[Unit]
+  def findById(id: Order.Id): UIO[Option[Order]]
+  def findByCustomer(customerId: Customer.Id): UIO[List[Order]]
 ```
 
-**Why `Task` and not `IO[DomainError, A]`?** Because a database failure is an infrastructure concern, not a domain concern. The `Live` service converts `Task` results to domain errors where appropriate:
+**Why `UIO` and not `Task` or `IO[DomainError, A]`?** The port is a domain contract — it has no knowledge of infrastructure. A database failure is not a domain concern, so `Throwable` has no place in the port's signature. Infrastructure adapters call `.orDie` at their own boundary, turning infrastructure failures into defects before they reach the domain. The `Live` service works with clean, infra-free effects:
 
 ```scala
 orderRepo.findById(orderId)
-  .orDie                                     // infra failure → defect
-  .someOrFail(OrderError.OrderNotFound(id))  // missing → domain error
+  .someOrFail(OrderError.OrderNotFound(id))  // Option → typed error, no .orDie needed
 ```
 
 **Why no intermediate record type?** The port's job is to store and retrieve domain entities. How that entity maps to a database row is the adapter's problem. Introducing a `OrderRecord` between the domain and the adapter just adds a translation step with no architectural benefit.
@@ -91,36 +90,45 @@ final case class PostgresOrderRepository(
   dataSource: javax.sql.DataSource
 ) extends OrderRepository:
 
-  override def save(order: Order): Task[Unit] =
+  override def save(order: Order): UIO[Unit] =
     val dao = OrderDAO.fromDomain(order)
     ZIO.attemptBlocking:
       // insert/upsert using quill, doobie, or JDBC
       ???
+    .orDie                                     // infra failure → defect at the adapter boundary
 
-  override def findById(id: Order.Id): Task[Option[Order]] =
+  override def findById(id: Order.Id): UIO[Option[Order]] =
     ZIO.attemptBlocking:
       // SQL select returning Option[OrderDAO]
       ???
     .map(_.map(_.toDomain))
+    .orDie                                     // infra failure → defect at the adapter boundary
 
 object PostgresOrderRepository:
   val layer: URLayer[javax.sql.DataSource, OrderRepository] =
     ZLayer.fromFunction(PostgresOrderRepository.apply)
 ```
 
-### Handling meaningful database errors
+### Handling domain-meaningful database errors
 
-Most database errors are infrastructure failures and should stay as `Throwable` in the `Task`. But some are domain-meaningful:
+Most database errors are pure infrastructure failures → `.orDie`. But some carry domain meaning (e.g. a unique-constraint violation means "entity already exists"). When the port declares a domain error for such cases, the adapter catches the specific exception and maps it:
 
 ```scala
-override def save(order: Order): Task[Unit] =
+// Port — declares the domain error that save can produce
+private[ordering] trait OrderRepository:
+  def save(order: Order): IO[OrderError, Unit]          // domain failure possible
+  def findById(id: Order.Id): UIO[Option[Order]]        // no domain failure
+
+// Adapter
+override def save(order: Order): IO[OrderError, Unit] =
   ZIO.attemptBlocking(db.execute(insertQuery))
     .catchSome:
       case _: DuplicateKeyException =>
-        ZIO.fail(new RuntimeException(s"Order ${order.id.value} already exists"))
-    // The Live service can catch this and map to a domain error if needed,
-    // or it stays as a defect if duplicates are truly unexpected
+        ZIO.fail(OrderError.OrderAlreadyExists(order.id)) // domain-meaningful
+    .orDie                                                 // everything else → defect
 ```
+
+If duplicates are truly unexpected in your domain, keep `UIO[Unit]` and let `.orDie` handle everything.
 
 ---
 
@@ -150,8 +158,8 @@ private[postgres] final case class OrderItemDAO(orderId: String, sku: String, qt
 private[postgres] final case class OrderAddressDAO(orderId: String, country: String, city: String, …)
 
 // Adapter: reassembles them into a domain entity
-override def findById(id: Order.Id): Task[Option[Order]] =
-  for
+override def findById(id: Order.Id): UIO[Option[Order]] =
+  (for
     headerOpt <- fetchHeader(id)
     result    <- headerOpt match
       case None => ZIO.succeed(None)
@@ -160,7 +168,7 @@ override def findById(id: Order.Id): Task[Option[Order]] =
           items   <- fetchItems(id)
           address <- fetchAddress(id)
         yield Some(assembleDomain(header, items, address))
-  yield result
+  yield result).orDie
 ```
 
 ---
@@ -198,12 +206,13 @@ Transactions are scoped at the **adapter level**, not the service level. A singl
 
 ```scala
 // In the adapter — one transaction per save
-override def save(order: Order): Task[Unit] =
+override def save(order: Order): UIO[Unit] =
   ZIO.attemptBlocking:
     db.transaction:
       upsertHeader(order)
       upsertItems(order)
       upsertAddress(order)
+  .orDie
 ```
 
 For aggregate-level consistency, ensure each aggregate is persisted atomically. Cross-aggregate consistency should use **eventual consistency** via events, not distributed transactions. See [06 — Bounded Contexts](06-bounded-contexts.md).
@@ -226,29 +235,29 @@ def toDomain: Either[String, Order] =
 In the adapter, decide how to handle parse failures:
 
 ```scala
-// Option 1: Fail loudly — corrupt data is a defect
-override def findById(id: Order.Id): Task[Option[Order]] =
+// Option 1: Fail loudly — corrupt data is a defect (the default)
+override def findById(id: Order.Id): UIO[Option[Order]] =
   fetchDAO(id).map(_.map(_.toDomain.fold(
     err => throw new IllegalStateException(s"Corrupt order $id: $err"),
     identity
-  )))
+  ))).orDie
 
 // Option 2: Skip and log — for tolerant reads
-override def findByCustomer(customerId: Customer.Id): Task[List[Order]] =
+override def findByCustomer(customerId: Customer.Id): UIO[List[Order]] =
   fetchDAOs(customerId).map(_.flatMap(dao =>
     dao.toDomain match
       case Right(order) => Some(order)
       case Left(err) =>
         logger.warn(s"Skipping corrupt order ${dao.id}: $err")
         None
-  ))
+  )).orDie
 ```
 
 ---
 
 ## 8. Summary
 
-1. **Repository ports use domain entities.** No intermediate record types.
+1. **Repository ports use domain entities and domain errors.** No intermediate record types, no `Throwable` in the signature.
 2. **Adapters own the mapping.** `OrderDAO.fromDomain` / `.toDomain` is the adapter's responsibility.
 3. **DAO is adapter-private.** `private[postgres]` — never visible outside.
 4. **Three models, three owners.** Domain, DTO, DAO evolve independently.

@@ -7,7 +7,10 @@ import zio.*
   *
   * How an [[Order]] becomes a database row (or document, or event) is the
   * adapter's problem, not the domain's. The port speaks the language of the domain.
+  *
+  * Returns [[UIO]] because infrastructure failures are defects, not domain
+  * concerns — adapters call `.orDie` at their own boundary.
   */
 private[ordering] trait OrderRepository:
-  def save(order: Order): Task[Unit]
-  def findById(id: Order.Id): Task[Option[Order]]
+  def save(order: Order): UIO[Unit]
+  def findById(id: Order.Id): UIO[Option[Order]]

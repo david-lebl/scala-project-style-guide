@@ -17,19 +17,20 @@ standalone microservice tomorrow — without rewriting its internals.
 
 ## Quick Reference
 
-| #  | Guide                                                     | What it covers                                                                                                                          |
-|----|-----------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
-| 01 | [Project Structure](guides/01-project-structure.md)       | Two-layer module split (`*-core` / `*-infra`), build definition, package layout, chained package clauses, dependency rules              |
-| 02 | [Domain Modeling](guides/02-domain-modeling.md)           | ADTs, strong types, opaque types, smart constructors, entities vs values, nesting, making illegal states unrepresentable                |
-| 03 | [Error Model](guides/03-error-model.md)                   | Error ADTs per bounded context, error messages & codes, ZIO error channel strategy, HTTP error mapping, error composition across layers |
-| 04 | [Service Design](guides/04-service-design.md)             | Public service traits, `Live` implementations, self-contained services, input/output DTOs, multiple services per context                |
-| 05 | [Persistence](guides/05-persistence.md)                   | Repository ports with domain types, DAO mapping in adapters, non-uniform models, parse-don't-validate                                   |
-| 06 | [Bounded Contexts](guides/06-bounded-contexts.md)         | Anti-corruption layer, cross-context ports & adapters, merging heuristic, event-driven decoupling                                       |
-| 07 | [Dependency Injection](guides/07-dependency-injection.md) | ZLayer patterns, module composition, test layers, avoiding God wiring                                                                   |
-| 08 | [Configuration](guides/08-configuration.md)               | Per-module config, zio-config, layered loading, secrets, environment-specific overrides                                                 |
-| 09 | [Testing](guides/09-testing.md)                           | In-memory layers, property-based testing, integration tests with containers, test structure                                             |
-| 10 | [API Design](guides/10-api-design.md)                     | HTTP routes, JSON codecs, versioning, OpenAPI, request/response conventions                                                             |
-| 11 | [Extraction](guides/11-extraction.md)                     | Modulith → microservice, client stubs, remote adapters, event-driven split                                                              |
+| #  | Guide                                                         | What it covers                                                                                                                          |
+|----|---------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
+| 01 | [Project Structure](guides/01-project-structure.md)           | Two-layer module split (`*-core` / `*-infra`), build definition, package layout, chained package clauses, dependency rules              |
+| 02 | [Domain Modeling](guides/02-domain-modeling.md)               | ADTs, strong types, opaque types, smart constructors, entities vs values, nesting, making illegal states unrepresentable                |
+| 03 | [Error Model](guides/03-error-model.md)                       | Error ADTs per bounded context, error messages & codes, ZIO error channel strategy, HTTP error mapping, error composition across layers |
+| 04 | [Service Design](guides/04-service-design.md)                 | Public service traits, `Live` implementations, self-contained services, input/output DTOs, multiple services per context                |
+| 05 | [Persistence](guides/05-persistence.md)                       | Repository ports with domain types, DAO mapping in adapters, non-uniform models, parse-don't-validate                                   |
+| 06 | [Bounded Contexts](guides/06-bounded-contexts.md)             | Anti-corruption layer, cross-context ports & adapters, merging heuristic, event-driven decoupling                                       |
+| 07 | [Dependency Injection](guides/07-dependency-injection.md)     | ZLayer patterns, module composition, test layers, avoiding God wiring                                                                   |
+| 08 | [Configuration](guides/08-configuration.md)                   | Per-module config, zio-config, layered loading, secrets, environment-specific overrides                                                 |
+| 09 | [Testing](guides/09-testing.md)                               | In-memory layers, property-based testing, integration tests with containers, test structure                                             |
+| 10 | [API Design](guides/10-api-design.md)                         | HTTP routes, JSON codecs, versioning, OpenAPI, request/response conventions                                                             |
+| 11 | [Extraction](guides/11-extraction.md)                         | Modulith → microservice, client stubs, remote adapters, event-driven split                                                              |
+| 12 | [Cross-Context Coupling](guides/12-cross-context-coupling.md) | The coupling spectrum: same context → direct dependency → anti-corruption layer. Decision flowchart, migration paths, hybrid approaches |
 
 ### Architecture Decision Records
 
@@ -84,7 +85,6 @@ monorepo/
 │       └── client-app/          ← client, wires required layers together
 │       └── server-app/          ← server, wires required layers together
 ```
-
 
 ---
 

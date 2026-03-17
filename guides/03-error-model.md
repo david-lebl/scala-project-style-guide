@@ -128,18 +128,17 @@ private[ordering] final case class OrderServiceLive(
 
 ### 3.2 Infrastructure Failures → Defect Channel
 
-Repository ports return `Task[A]` (alias for `IO[Throwable, A]`). The `Live` service converts these to defects because a database failure is not a domain concern:
+Output ports (repositories, gateways) are domain contracts — they return only domain-meaningful error types (or `UIO` when there are none). Infrastructure adapters call `.orDie` at their own boundary, so `Throwable` never appears in a port's signature. The `Live` service works with clean, infra-free effects:
 
 ```scala
 override def getOrder(id: OrderId): IO[OrderError, OrderView] =
   for
     order <- orderRepo.findById(Order.Id(id.value))
-               .orDie                                    // Task → UIO, Throwable becomes defect
-               .someOrFail(OrderError.OrderNotFound(id)) // Option → typed error
+               .someOrFail(OrderError.OrderNotFound(id)) // Option → typed error, no .orDie needed
   yield toView(order)
 ```
 
-**Rule of thumb:** if the caller can do something meaningful about the failure (show a message, retry with different input, take an alternative path), it's a **typed error**. If all the caller can do is give up and report, it's a **defect**.
+**Rule of thumb:** if the caller can do something meaningful about the failure (show a message, retry with different input, take an alternative path), it's a **typed error**. If all the caller can do is give up and report, it's a **defect**. Infrastructure failures are always defects — `.orDie` belongs in the adapter, not the service.
 
 ### 3.3 Never Mix the Two
 
@@ -156,7 +155,7 @@ def checkout(input: CheckoutInput): IO[OrderError | SQLException, OrderView] = ?
 def checkout(input: CheckoutInput): IO[OrderError, OrderView] =
   for
     _     <- ZIO.cond(input.items.nonEmpty, (), OrderError.EmptyItemList) // domain
-    order <- orderRepo.save(order).orDie                                  // infra → defect
+    _     <- orderRepo.save(order)                                        // UIO — infra handled in adapter
   yield view
 ```
 
@@ -177,7 +176,7 @@ override def checkout(input: CheckoutInput): IO[OrderError, OrderView] =
     // all validated — proceed
     orderId <- idGen.generate.orDie
     order    = buildOrder(orderId, items, address, stock)
-    _       <- orderRepo.save(order).orDie
+    _       <- orderRepo.save(order)
   yield toView(order)
 ```
 
@@ -300,18 +299,20 @@ For accumulated validation errors:
 
 ### 5.1 Wrapping External Library Errors
 
-When calling an external library that throws or returns its own error type, convert at the boundary:
+When calling an external library that throws or returns its own error type, convert at the adapter boundary. The port returns `UIO` (or `IO[DomainError, A]` if there are domain-meaningful failures):
 
 ```scala
-// In the persistence adapter
-override def save(order: Order): Task[Unit] =
+// In the persistence adapter — no domain-meaningful errors
+override def save(order: Order): UIO[Unit] =
   ZIO.attemptBlocking:      // catches any Throwable → Task
     db.execute(insertQuery)
+  .orDie                     // infra failure → defect at the adapter boundary
 ```
 
-If the external error is **meaningful** to the domain (e.g. a unique constraint violation means "order already exists"), catch it specifically:
+If the external error is **meaningful** to the domain (e.g. a unique constraint violation means "order already exists"), the port declares the domain error and the adapter catches it specifically:
 
 ```scala
+// Port declares: def save(order: Order): IO[OrderError, Unit]
 override def save(order: Order): IO[OrderError, Unit] =
   ZIO.attemptBlocking(db.execute(insertQuery))
     .catchSome:
@@ -325,14 +326,13 @@ override def save(order: Order): IO[OrderError, Unit] =
 Use `Option` at the repository level and convert to a typed error in the service:
 
 ```scala
-// Repository port — returns Option
+// Repository port — returns UIO[Option[…]]
 trait OrderRepository:
-  def findById(id: Order.Id): Task[Option[Order]]
+  def findById(id: Order.Id): UIO[Option[Order]]
 
 // Live service — converts Option → typed error
 override def getOrder(id: OrderId): IO[OrderError, OrderView] =
   orderRepo.findById(Order.Id(id.value))
-    .orDie                                      // Task → UIO
     .someOrFail(OrderError.OrderNotFound(id))   // Option → IO[OrderError, Order]
     .map(toView)
 ```

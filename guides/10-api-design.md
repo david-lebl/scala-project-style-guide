@@ -332,13 +332,13 @@ Keep pagination logic in the repository port, not in the service:
 
 ```scala
 private[ordering] trait OrderRepository:
-  def save(order: Order): Task[Unit]
-  def findById(id: Order.Id): Task[Option[Order]]
+  def save(order: Order): UIO[Unit]
+  def findById(id: Order.Id): UIO[Option[Order]]
   def findByCustomer(
     customerId: Customer.Id,
     offset:     Int,
     limit:      Int
-  ): Task[(List[Order], Long)]   // (items, totalCount)
+  ): UIO[(List[Order], Long)]   // (items, totalCount)
 ```
 
 ---
