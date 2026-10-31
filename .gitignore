@@ -40,3 +40,6 @@ Thumbs.db
 # Logs
 *.log
 logs/
+# Claude Code workflow: local run state
+.claude/state/
+.claude/settings.local.json

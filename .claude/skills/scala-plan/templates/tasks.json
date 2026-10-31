@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "slug": "<slug>",
+  "title": "<Title>",
+  "changeDir": "docs/changes/<yyyy-mm-dd>-<slug>",
+  "createdAt": "<yyyy-mm-dd>",
+  "approved": false,
+  "approvedAt": null,
+  "branch": null,
+  "baseCommit": null,
+  "phase": "planning",
+  "blockedReason": null,
+  "limits": {
+    "taskFixRounds": 2,
+    "finalReviewRounds": 3
+  },
+  "requirements": [
+    { "id": "R1", "title": "<short name>" }
+  ],
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "<title>",
+      "covers": ["R1"],
+      "modules": ["orderingCore"],
+      "status": "pending",
+      "fixRounds": 0,
+      "commits": [],
+      "openFindings": []
+    }
+  ],
+  "finalReview": {
+    "status": "pending",
+    "round": 0,
+    "rounds": [],
+    "openFindings": []
+  },
+  "docs": {
+    "status": "pending"
+  }
+}

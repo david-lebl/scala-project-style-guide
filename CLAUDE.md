@@ -82,3 +82,14 @@ package postgres
 
 - **ADR-001** (`decisions/001-zio-over-cats-effect.md`): ZIO chosen for its typed error channel, built-in `ZLayer` DI, and batteries-included test utilities.
 - **ADR-002** (`decisions/002-anti-corruption-over-direct-core-deps.md`): Core modules never depend on each other — enables independent extraction and prevents circular dependencies.
+
+## Agentic Development Workflow
+
+Two user-invoked skills run a plan → implement → review workflow (details: `docs/agentic-workflow.md`):
+
+- `/scala-plan <task>`: explore, clarify requirements with the user, write `docs/changes/<date>-<slug>/plan.md` + `tasks.json`; on explicit approval, create the local branch `feature/<slug>` and commit the plan.
+- `/scala-implement [slug]`: autonomous and resumable. Per task: implementer subagent → gates → spec + quality review → capped fix loop → local commit. Then verified whole-change review rounds, then `pr-description.md`, `issues.md` and `review-report.md`.
+
+Gates: `.claude/scripts/scala-gates.sh [--fix] [--base <ref>] [module...]` (style lint, scalafmt on changed files, compile with fatal warnings, tests; fails if no test ran). Run state: `.claude/scripts/run-state.sh <changeDir> next|show`. Configuration: `.claude/scala-workflow.env`.
+
+Never push: deny rules and `.claude/hooks/block-remote-git.sh` block `git push`, remote changes and GitHub writes for every agent. The user publishes the branch after human review.
