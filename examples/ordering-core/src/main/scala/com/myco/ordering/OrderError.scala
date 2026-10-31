@@ -12,26 +12,25 @@ enum OrderError(val code: OrderError.Code, val details: String):
   /** Computed message combining code and details. */
   def message: String = s"[${code.value}] $details"
 
-  case EmptyItemList
-    extends OrderError(Code.EmptyItemList, "Cannot create an order with no items")
+  case EmptyItemList extends OrderError(OrderError.Code.EmptyItemList, "Cannot create an order with no items")
 
   case ItemNotFound(catalogueNumber: String)
-    extends OrderError(Code.ItemNotFound, s"Item '$catalogueNumber' does not exist in the catalogue")
+      extends OrderError(OrderError.Code.ItemNotFound, s"Item '$catalogueNumber' does not exist in the catalogue")
 
   case InsufficientStock(catalogueNumber: String, requested: Int, available: Int)
-    extends OrderError(
-      Code.InsufficientStock,
-      s"Item '$catalogueNumber': requested $requested but only $available available"
-    )
+      extends OrderError(
+        OrderError.Code.InsufficientStock,
+        s"Item '$catalogueNumber': requested $requested but only $available available"
+      )
 
   case InvalidAddress(reason: String)
-    extends OrderError(Code.InvalidAddress, s"Shipping address is invalid: $reason")
+      extends OrderError(OrderError.Code.InvalidAddress, s"Shipping address is invalid: $reason")
 
   case OrderNotFound(orderId: OrderId)
-    extends OrderError(Code.OrderNotFound, s"Order '${orderId.value}' not found")
+      extends OrderError(OrderError.Code.OrderNotFound, s"Order '${orderId.value}' not found")
 
   case OrderAlreadyCancelled(orderId: OrderId)
-    extends OrderError(Code.OrderAlreadyCancelled, s"Order '${orderId.value}' is already cancelled")
+      extends OrderError(OrderError.Code.OrderAlreadyCancelled, s"Order '${orderId.value}' is already cancelled")
 
 end OrderError
 
